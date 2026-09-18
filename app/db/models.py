@@ -1,4 +1,4 @@
-from sqlalchemy import Integer, String
+from sqlalchemy import Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -17,6 +17,7 @@ class Lead(Base):
         Integer,
         unique=True,
         nullable=False,
+        index=True,
     )
 
     first_name: Mapped[str | None] = mapped_column(
@@ -49,14 +50,27 @@ class Lead(Base):
         nullable=True,
     )
 
+    email_normalized: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        index=True,
+    )
+
     phone_number: Mapped[str | None] = mapped_column(
         String(100),
         nullable=True,
     )
 
+    phone_normalized: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+        index=True,
+    )
+
     country: Mapped[str | None] = mapped_column(
         String(100),
         nullable=True,
+        index=True,
     )
 
     city: Mapped[str | None] = mapped_column(
@@ -67,6 +81,7 @@ class Lead(Base):
     lead_status: Mapped[str | None] = mapped_column(
         String(100),
         nullable=True,
+        index=True,
     )
 
     lifecycle_stage: Mapped[str | None] = mapped_column(
@@ -87,6 +102,7 @@ class Lead(Base):
     contact_owner: Mapped[str | None] = mapped_column(
         String(255),
         nullable=True,
+        index=True,
     )
 
     create_date: Mapped[str | None] = mapped_column(
@@ -122,4 +138,33 @@ class Lead(Base):
     lead_score: Mapped[int | None] = mapped_column(
         Integer,
         nullable=True,
+    )
+
+    name_normalized: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        index=True,
+    )
+
+    company_normalized: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        index=True,
+    )
+
+    source_channel: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+    )
+
+    source_detail: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True,
+    )
+
+    __table_args__ = (
+        Index(
+            "ix_leads_company_name_normalized",
+            "company_normalized",
+        ),
     )
