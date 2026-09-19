@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from sqlalchemy import text
 
+from app.api.leads import router as leads_router
 from app.db.database import Base, engine
 from app.db.models import Lead
 
@@ -22,6 +23,9 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+
+app.include_router(leads_router)
 
 
 @app.get("/health")
