@@ -1,7 +1,14 @@
 import csv
 from io import StringIO
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    UploadFile
+)
 from fastapi.responses import StreamingResponse
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
@@ -11,6 +18,7 @@ from app.db.models import Lead
 from app.schemas.lead import (
     DedupeCandidate,
     DedupeResponse,
+    IngestResponse,
     LeadResponse,
     LeadSummary,
     LeadUpdate,
@@ -321,6 +329,126 @@ def find_dedupe_candidates(
         candidates=candidates,
     )
 
+
+@router.post(
+    "/ingest",
+    response_model=IngestResponse,
+)
+async def ingest_leads(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    if not file.filename:
+        raise HTTPException(
+            status_code=400,
+            detail="File name is required",
+        )
+
+    if not file.filename.lower().endswith(".csv"):
+        raise HTTPException(
+            status_code=400,
+            detail="Only CSV files are supported",
+        )
+
+    content = await file.read()
+
+    try:
+        text = content.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise HTTPException(
+            status_code=400,
+            detail="CSV file must use UTF-8 encoding",
+        )
+
+    reader = csv.DictReader(
+        StringIO(text)
+    )
+
+    if not reader.fieldnames:
+        raise HTTPException(
+            status_code=400,
+            detail="CSV file has no header",
+        )
+
+    required_fields = {
+        "Record ID",
+    }
+
+    missing_fields = (
+        required_fields
+        - set(reader.fieldnames)
+    )
+
+    if missing_fields:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Missing required columns: "
+                + ", ".join(
+                    sorted(missing_fields)
+                )
+            ),
+        )
+
+    total_rows = 0
+    inserted = 0
+    updated = 0
+    skipped = 0
+    errors = 0
+    error_details: list[str] = []
+
+    for row_number, row in enumerate(
+        reader,
+        start=2,
+    ):
+        total_rows += 1
+
+        try:
+            record_id_value = (
+                row.get("Record ID")
+                or ""
+            ).strip()
+
+            if not record_id_value:
+                skipped += 1
+
+                error_details.append(
+                    f"Row {row_number}: missing Record ID"
+                )
+
+                continue
+
+            record_id = int(
+                record_id_value
+            )
+
+            existing = db.scalar(
+                select(Lead).where(
+                    Lead.record_id
+                    == record_id
+                )
+            )
+
+            if existing:
+                updated += 1
+            else:
+                inserted += 1
+
+        except (ValueError, TypeError) as exc:
+            errors += 1
+
+            error_details.append(
+                f"Row {row_number}: {exc}"
+            )
+
+    return IngestResponse(
+        total_rows=total_rows,
+        inserted=inserted,
+        updated=updated,
+        skipped=skipped,
+        errors=errors,
+        error_details=error_details,
+    )
 
 @router.get(
     "/{lead_id}",

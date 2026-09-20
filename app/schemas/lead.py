@@ -1,5 +1,13 @@
 from pydantic import BaseModel, ConfigDict, Field
 
+class IngestResponse(BaseModel):
+    total_rows: int
+    inserted: int
+    updated: int
+    skipped: int
+    errors: int
+    error_details: list[str]
+
 class LeadResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
