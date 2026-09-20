@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 class LeadResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -52,3 +52,31 @@ class LeadUpdate(BaseModel):
     status: str | None = None
     owner: str | None = None
     notes: str | None = None
+
+class LeadSummary(BaseModel):
+    id: int
+    record_id: int
+
+    name: str | None = None
+    email: str | None = None
+    phone_number: str | None = None
+    company_name: str | None = None
+    country: str | None = None
+
+class DedupeCandidate(BaseModel):
+    lead_a: LeadSummary
+    lead_b: LeadSummary
+
+    confidence: float = Field(
+        ge=0.0,
+        le=1.0,
+    )
+
+    reason: str
+
+    signals: list[str]
+
+
+class DedupeResponse(BaseModel):
+    candidate_pairs_considered: int
+    candidates: list[DedupeCandidate]

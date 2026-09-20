@@ -8,7 +8,18 @@ from sqlalchemy.orm import Session
 
 from app.db.database import get_db
 from app.db.models import Lead
-from app.schemas.lead import LeadResponse, LeadUpdate
+from app.schemas.lead import (
+    DedupeCandidate,
+    DedupeResponse,
+    LeadResponse,
+    LeadSummary,
+    LeadUpdate,
+)
+from app.services.dedup import (
+    build_reason,
+    generate_candidate_pairs,
+    score_pair,
+)
 from app.services.normalization import normalize_status
 
 
@@ -16,6 +27,35 @@ router = APIRouter(
     prefix="/leads",
     tags=["Leads"],
 )
+
+
+EXPORT_FIELDS = [
+    "id",
+    "record_id",
+    "first_name",
+    "last_name",
+    "full_name",
+    "job_title",
+    "company_name",
+    "email",
+    "phone_number",
+    "country",
+    "city",
+    "lead_status",
+    "lifecycle_stage",
+    "original_source",
+    "original_source_drill_down_1",
+    "contact_owner",
+    "create_date",
+    "last_modified_date",
+    "notes",
+    "annual_revenue",
+    "marketing_contact_status",
+    "gdpr_consent",
+    "lead_score",
+    "source_channel",
+    "source_detail",
+]
 
 
 def apply_filters(
@@ -65,6 +105,33 @@ def apply_filters(
     return statement
 
 
+def make_lead_summary(
+    lead: Lead,
+) -> LeadSummary:
+    name = (
+        lead.full_name
+        or " ".join(
+            part
+            for part in [
+                lead.first_name,
+                lead.last_name,
+            ]
+            if part
+        )
+        or None
+    )
+
+    return LeadSummary(
+        id=lead.id,
+        record_id=lead.record_id,
+        name=name,
+        email=lead.email,
+        phone_number=lead.phone_number,
+        company_name=lead.company_name,
+        country=lead.country,
+    )
+
+
 @router.get(
     "/",
     response_model=list[LeadResponse],
@@ -74,8 +141,15 @@ def list_leads(
     owner: str | None = Query(default=None),
     country: str | None = Query(default=None),
     q: str | None = Query(default=None),
-    limit: int = Query(default=50, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
+    limit: int = Query(
+        default=50,
+        ge=1,
+        le=200,
+    ),
+    offset: int = Query(
+        default=0,
+        ge=0,
+    ),
     db: Session = Depends(get_db),
 ):
     statement = select(Lead)
@@ -90,9 +164,15 @@ def list_leads(
 
     statement = statement.order_by(Lead.id)
 
-    statement = statement.offset(offset).limit(limit)
+    statement = statement.offset(
+        offset
+    ).limit(
+        limit
+    )
 
-    leads = db.scalars(statement).all()
+    leads = db.scalars(
+        statement
+    ).all()
 
     return leads
 
@@ -117,20 +197,29 @@ def export_leads(
         q=q,
     )
 
-    statement = statement.order_by(Lead.id)
+    statement = statement.order_by(
+        Lead.id
+    )
 
-    leads = db.scalars(statement).all()
+    leads = db.scalars(
+        statement
+    ).all()
 
     output = StringIO()
 
     writer = csv.writer(output)
 
-    writer.writerow(EXPORT_FIELDS)
+    writer.writerow(
+        EXPORT_FIELDS
+    )
 
     for lead in leads:
         writer.writerow(
             [
-                getattr(lead, field)
+                getattr(
+                    lead,
+                    field,
+                )
                 for field in EXPORT_FIELDS
             ]
         )
@@ -138,13 +227,98 @@ def export_leads(
     output.seek(0)
 
     return StreamingResponse(
-        iter([output.getvalue()]),
+        iter(
+            [output.getvalue()]
+        ),
         media_type="text/csv",
         headers={
             "Content-Disposition": (
-                "attachment; filename=leads_export.csv"
+                "attachment; "
+                "filename=leads_export.csv"
             )
         },
+    )
+
+
+@router.post(
+    "/dedupe-candidates",
+    response_model=DedupeResponse,
+)
+def find_dedupe_candidates(
+    min_confidence: float = Query(
+        default=0.72,
+        ge=0.0,
+        le=1.0,
+    ),
+    db: Session = Depends(get_db),
+):
+    leads = db.scalars(
+        select(Lead)
+    ).all()
+
+    lead_by_id = {
+        lead.id: lead
+        for lead in leads
+    }
+
+    candidate_pairs = (
+        generate_candidate_pairs(
+            leads
+        )
+    )
+
+    candidates: list[DedupeCandidate] = []
+
+    for lead_a_id, lead_b_id in candidate_pairs:
+        lead_a = lead_by_id[
+            lead_a_id
+        ]
+
+        lead_b = lead_by_id[
+            lead_b_id
+        ]
+
+        confidence, scores = score_pair(
+            lead_a,
+            lead_b,
+        )
+
+        if confidence < min_confidence:
+            continue
+
+        reason, signals = build_reason(
+            lead_a,
+            lead_b,
+            scores,
+        )
+
+        candidates.append(
+            DedupeCandidate(
+                lead_a=make_lead_summary(
+                    lead_a
+                ),
+                lead_b=make_lead_summary(
+                    lead_b
+                ),
+                confidence=round(
+                    confidence,
+                    4,
+                ),
+                reason=reason,
+                signals=signals,
+            )
+        )
+
+    candidates.sort(
+        key=lambda candidate: candidate.confidence,
+        reverse=True,
+    )
+
+    return DedupeResponse(
+        candidate_pairs_considered=len(
+            candidate_pairs
+        ),
+        candidates=candidates,
     )
 
 
@@ -156,11 +330,15 @@ def get_lead(
     lead_id: int,
     db: Session = Depends(get_db),
 ):
-    statement = select(Lead).where(
+    statement = select(
+        Lead
+    ).where(
         Lead.id == lead_id
     )
 
-    lead = db.scalar(statement)
+    lead = db.scalar(
+        statement
+    )
 
     if lead is None:
         raise HTTPException(
@@ -180,11 +358,15 @@ def update_lead(
     payload: LeadUpdate,
     db: Session = Depends(get_db),
 ):
-    statement = select(Lead).where(
+    statement = select(
+        Lead
+    ).where(
         Lead.id == lead_id
     )
 
-    lead = db.scalar(statement)
+    lead = db.scalar(
+        statement
+    )
 
     if lead is None:
         raise HTTPException(
@@ -207,44 +389,22 @@ def update_lead(
             updates["status"]
         )
 
-        lead.lead_status = updates["status"]
+        lead.lead_status = updates[
+            "status"
+        ]
 
     if "owner" in updates:
-        lead.contact_owner = updates["owner"]
+        lead.contact_owner = updates[
+            "owner"
+        ]
 
     if "notes" in updates:
-        lead.notes = updates["notes"]
+        lead.notes = updates[
+            "notes"
+        ]
 
     db.commit()
+
     db.refresh(lead)
 
     return lead
-
-
-EXPORT_FIELDS = [
-    "id",
-    "record_id",
-    "first_name",
-    "last_name",
-    "full_name",
-    "job_title",
-    "company_name",
-    "email",
-    "phone_number",
-    "country",
-    "city",
-    "lead_status",
-    "lifecycle_stage",
-    "original_source",
-    "original_source_drill_down_1",
-    "contact_owner",
-    "create_date",
-    "last_modified_date",
-    "notes",
-    "annual_revenue",
-    "marketing_contact_status",
-    "gdpr_consent",
-    "lead_score",
-    "source_channel",
-    "source_detail",
-]
