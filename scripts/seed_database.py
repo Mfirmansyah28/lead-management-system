@@ -3,6 +3,7 @@ from pathlib import Path
 
 from app.db.database import Base, SessionLocal, engine
 from app.db.models import Lead
+from app.services.source_extraction import extract_source
 from app.services.normalization import (
     clean_text,
     normalize_company,
@@ -101,6 +102,10 @@ def normalize_row(row: dict[str, str]) -> dict:
     data["company_normalized"] = normalize_company(
         row["Company Name"]
     )
+
+    source = extract_source(row.get("Notes"))
+    data["source_channel"] = source.channel
+    data["source_detail"] = source.detail
 
     return data
 

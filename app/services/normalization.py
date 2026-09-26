@@ -9,6 +9,7 @@ STATUS_MAP = {
     "qualified": "Qualified",
     "opportunity": "Opportunity",
     "close won": "Closed Won",
+    "closed won": "Closed Won",
     "closed lost": "Closed Lost",
 }
 
@@ -100,3 +101,12 @@ def normalize_date(value: str | None) -> str | None:
 
     except ValueError:
         return value
+
+def split_name(value: str | None) -> tuple[str | None, str | None]:
+    value = clean_text(value)
+    if not value:
+        return None, None
+    parts = value.split(" ", 1)
+    if len(parts) == 1:
+        return parts[0], None
+    return parts[0], parts[1]

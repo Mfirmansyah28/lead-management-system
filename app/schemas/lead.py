@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 class IngestResponse(BaseModel):
     total_rows: int
@@ -88,3 +88,31 @@ class DedupeCandidate(BaseModel):
 class DedupeResponse(BaseModel):
     candidate_pairs_considered: int
     candidates: list[DedupeCandidate]
+
+
+class IngestLead(BaseModel):
+    form_id: str | None = None
+    form_name: str | None = None
+    page_url: str | None = None
+    submitted_at: str | None = None
+    name: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    company: str | None = None
+    country: str | None = None
+    message: str | None = None
+
+
+class SourceExtractionRequest(BaseModel):
+    text: str
+
+
+class SourceExtractionResponse(BaseModel):
+    channel: str
+    detail: str
+
+
+class DashboardResponse(BaseModel):
+    total_leads: int
+    by_status: dict[str, int]
+    by_source_channel: dict[str, int]

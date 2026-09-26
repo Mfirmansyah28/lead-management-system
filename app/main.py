@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from sqlalchemy import text
+from sqlalchemy import text, select
 
 from app.api.leads import router as leads_router
 from app.db.database import Base, engine
@@ -26,6 +26,28 @@ app = FastAPI(
 
 
 app.include_router(leads_router)
+
+
+@app.get("/dashboard")
+def dashboard():
+    with engine.connect() as connection:
+        rows = connection.execute(
+            select(Lead.lead_status, Lead.source_channel)
+        ).all()
+
+    by_status: dict[str, int] = {}
+    by_source_channel: dict[str, int] = {}
+    for status, source in rows:
+        status_key = status or "Unknown"
+        source_key = source or "Unknown"
+        by_status[status_key] = by_status.get(status_key, 0) + 1
+        by_source_channel[source_key] = by_source_channel.get(source_key, 0) + 1
+
+    return {
+        "total_leads": len(rows),
+        "by_status": dict(sorted(by_status.items())),
+        "by_source_channel": dict(sorted(by_source_channel.items())),
+    }
 
 
 @app.get("/health")
