@@ -1,11 +1,13 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from sqlalchemy import text, select
+from fastapi.responses import RedirectResponse
+from sqlalchemy import text
 
 from app.api.leads import router as leads_router
+from app.api.leads import dashboard as leads_dashboard
 from app.db.database import Base, engine
-from app.db.models import Lead
+from app.schemas.lead import DashboardResponse
 
 
 @asynccontextmanager
@@ -28,26 +30,21 @@ app = FastAPI(
 app.include_router(leads_router)
 
 
-@app.get("/dashboard")
-def dashboard():
-    with engine.connect() as connection:
-        rows = connection.execute(
-            select(Lead.lead_status, Lead.source_channel)
-        ).all()
+@app.get("/", include_in_schema=False)
+def root():
+    return RedirectResponse(url="/docs")
 
-    by_status: dict[str, int] = {}
-    by_source_channel: dict[str, int] = {}
-    for status, source in rows:
-        status_key = status or "Unknown"
-        source_key = source or "Unknown"
-        by_status[status_key] = by_status.get(status_key, 0) + 1
-        by_source_channel[source_key] = by_source_channel.get(source_key, 0) + 1
 
-    return {
-        "total_leads": len(rows),
-        "by_status": dict(sorted(by_status.items())),
-        "by_source_channel": dict(sorted(by_source_channel.items())),
-    }
+# The assignment asks for this exact path (`GET /dashboard`), so it's
+# registered at root too. It reuses the same handler as `/leads/dashboard`
+# rather than duplicating the aggregation logic a second time.
+app.add_api_route(
+    "/dashboard",
+    leads_dashboard,
+    methods=["GET"],
+    response_model=DashboardResponse,
+    tags=["Dashboard"],
+)
 
 
 @app.get("/health")
